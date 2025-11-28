@@ -637,7 +637,6 @@ app.get('*', (req, res) => {
   if (req.path.startsWith('/api/')) {
     return res.status(404).json({ error: 'API endpoint not found' });
   }
-  res.sendFile(path.join(__dirname, '../../ui/build', 'index.html'));
 });
 
 // Start server
