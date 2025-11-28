@@ -627,17 +627,14 @@ app.delete('/api/pitches/:id', async (req, res) => {
 
 // Old /api/login-sql endpoint removed - now using /api/login with Azure SQL
 
-// Serve React build (static files)
-// Path: server/src -> go up 2 levels -> ui/build
-app.use(express.static(path.join(__dirname, '../../ui/build')));
-
-// Catch-all handler: send React app for any non-API routes
-app.get('*', (req, res) => {
-  // Don't serve React for API routes
+// API-only fallback for unknown routes
+app.all('*', (req, res) => {
   if (req.path.startsWith('/api/')) {
     return res.status(404).json({ error: 'API endpoint not found' });
   }
+  res.status(404).json({ error: 'Not found' });
 });
+
 
 // Start server
 const PORT = process.env.PORT || 5000;
