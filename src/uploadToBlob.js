@@ -9,6 +9,7 @@ require('dotenv').config();
 const accountName = process.env.AZURE_STORAGE_ACCOUNT_NAME;
 const accountKey = process.env.AZURE_STORAGE_ACCOUNT_KEY;
 const containerName = process.env.AZURE_CONTAINER_NAME;
+const profilingContainerName = process.env.AZURE_PROFILING_CONTAINER_NAME || 'profilingfiles';
 
 const sharedKeyCredential = new StorageSharedKeyCredential(accountName, accountKey);
 
@@ -18,8 +19,8 @@ const blobServiceClient = new BlobServiceClient(
 );
 
 // Function to generate SAS token for a blob
-const generateSASUrl = (fileName) => {
-  const containerClient = blobServiceClient.getContainerClient(containerName);
+const generateSASUrl = (fileName, container = containerName) => {
+  const containerClient = blobServiceClient.getContainerClient(container);
   const blockBlobClient = containerClient.getBlockBlobClient(fileName);
 
   // Generate a SAS token (valid for 1 year)
@@ -60,8 +61,16 @@ const getContentType = (fileName) => {
   return contentTypes[ext] || 'application/octet-stream';
 };
 
-const uploadToBlob = async (fileBuffer, fileName) => {
-  const containerClient = blobServiceClient.getContainerClient(containerName);
+const uploadToBlob = async (fileBuffer, fileName, container = containerName) => {
+  const containerClient = blobServiceClient.getContainerClient(container);
+  
+  // Ensure container exists
+  try {
+    await containerClient.createIfNotExists({ access: 'blob' });
+  } catch (error) {
+    console.error('Error creating container:', error);
+  }
+  
   const blockBlobClient = containerClient.getBlockBlobClient(fileName);
 
   // Detect content type from file extension
@@ -76,8 +85,8 @@ const uploadToBlob = async (fileBuffer, fileName) => {
   });
 
   // Generate a fresh SAS URL
-  return generateSASUrl(fileName);
+  return generateSASUrl(fileName, container);
 };
 
-// Export both functions
-module.exports = { uploadToBlob, generateSASUrl };
+// Export both functions and container name
+module.exports = { uploadToBlob, generateSASUrl, profilingContainerName };

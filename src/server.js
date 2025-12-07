@@ -7,7 +7,7 @@ const jwt = require('jsonwebtoken');
 const path = require('path');
 require('dotenv').config();
 
-const { uploadToBlob, generateSASUrl } = require('./uploadToBlob');
+const { uploadToBlob, generateSASUrl, profilingContainerName } = require('./uploadToBlob');
 const Pitch = require('./models/Pitch');
 const { connectToSql, sql } = require('./dbSql');
 
@@ -622,6 +622,269 @@ app.delete('/api/pitches/:id', async (req, res) => {
   } catch (error) {
     console.error('Failed to delete pitch:', error);
     res.status(500).json({ error: 'Failed to delete pitch' });
+  }
+});
+
+// ==================== PROFILING ROUTES ====================
+
+// Ensure Profiles table exists
+const ensureProfilesTable = async (pool) => {
+  try {
+    await pool.request().query(`
+      IF NOT EXISTS (SELECT * FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_NAME = 'Profiles')
+      BEGIN
+        CREATE TABLE Profiles (
+          Id INT PRIMARY KEY IDENTITY(1,1),
+          UserId INT NOT NULL,
+          Name NVARCHAR(255),
+          Bio NVARCHAR(MAX),
+          Expertise NVARCHAR(MAX),
+          Experience NVARCHAR(MAX),
+          Skills NVARCHAR(MAX),
+          PortfolioUrl NVARCHAR(500),
+          ProfileImageUrl NVARCHAR(500),
+          ResumeUrl NVARCHAR(500),
+          OtherFilesUrl NVARCHAR(MAX), -- JSON array of file URLs
+          IsPremium BIT DEFAULT 0,
+          VisibilityLevel NVARCHAR(50) DEFAULT 'standard',
+          CreatedAt DATETIME2 DEFAULT GETDATE(),
+          UpdatedAt DATETIME2 DEFAULT GETDATE(),
+          FOREIGN KEY (UserId) REFERENCES Users(Id) ON DELETE CASCADE
+        );
+        CREATE INDEX IX_Profiles_UserId ON Profiles(UserId);
+      END
+    `);
+    console.log('✅ Profiles table verified/created');
+  } catch (tableError) {
+    console.error('⚠️ Table creation check error (may already exist):', tableError.message);
+  }
+};
+
+// Create or update profile
+app.post('/api/profiles', authenticateToken, async (req, res) => {
+  try {
+    const userId = req.user.userId;
+    const { name, bio, expertise, experience, skills, portfolioUrl, profileImageUrl, resumeUrl, otherFilesUrl, isPremium, visibilityLevel } = req.body;
+
+    const pool = await connectToSql();
+    await ensureProfilesTable(pool);
+
+    // Check if profile exists
+    const existingProfile = await pool.request()
+      .input('userId', sql.Int, userId)
+      .query('SELECT * FROM Profiles WHERE UserId = @userId');
+
+    let result;
+    if (existingProfile.recordset.length > 0) {
+      // Update existing profile
+      result = await pool.request()
+        .input('userId', sql.Int, userId)
+        .input('name', sql.NVarChar, name || null)
+        .input('bio', sql.NVarChar(sql.MAX), bio || null)
+        .input('expertise', sql.NVarChar(sql.MAX), expertise || null)
+        .input('experience', sql.NVarChar(sql.MAX), experience || null)
+        .input('skills', sql.NVarChar(sql.MAX), skills || null)
+        .input('portfolioUrl', sql.NVarChar, portfolioUrl || null)
+        .input('profileImageUrl', sql.NVarChar, profileImageUrl || null)
+        .input('resumeUrl', sql.NVarChar, resumeUrl || null)
+        .input('otherFilesUrl', sql.NVarChar(sql.MAX), otherFilesUrl || null)
+        .input('isPremium', sql.Bit, isPremium || false)
+        .input('visibilityLevel', sql.NVarChar, visibilityLevel || 'standard')
+        .query(`
+          UPDATE Profiles 
+          SET Name = @name,
+              Bio = @bio,
+              Expertise = @expertise,
+              Experience = @experience,
+              Skills = @skills,
+              PortfolioUrl = @portfolioUrl,
+              ProfileImageUrl = @profileImageUrl,
+              ResumeUrl = @resumeUrl,
+              OtherFilesUrl = @otherFilesUrl,
+              IsPremium = @isPremium,
+              VisibilityLevel = @visibilityLevel,
+              UpdatedAt = GETDATE()
+          OUTPUT INSERTED.*
+          WHERE UserId = @userId
+        `);
+    } else {
+      // Create new profile
+      result = await pool.request()
+        .input('userId', sql.Int, userId)
+        .input('name', sql.NVarChar, name || null)
+        .input('bio', sql.NVarChar(sql.MAX), bio || null)
+        .input('expertise', sql.NVarChar(sql.MAX), expertise || null)
+        .input('experience', sql.NVarChar(sql.MAX), experience || null)
+        .input('skills', sql.NVarChar(sql.MAX), skills || null)
+        .input('portfolioUrl', sql.NVarChar, portfolioUrl || null)
+        .input('profileImageUrl', sql.NVarChar, profileImageUrl || null)
+        .input('resumeUrl', sql.NVarChar, resumeUrl || null)
+        .input('otherFilesUrl', sql.NVarChar(sql.MAX), otherFilesUrl || null)
+        .input('isPremium', sql.Bit, isPremium || false)
+        .input('visibilityLevel', sql.NVarChar, visibilityLevel || 'standard')
+        .query(`
+          INSERT INTO Profiles (UserId, Name, Bio, Expertise, Experience, Skills, PortfolioUrl, ProfileImageUrl, ResumeUrl, OtherFilesUrl, IsPremium, VisibilityLevel)
+          OUTPUT INSERTED.*
+          VALUES (@userId, @name, @bio, @expertise, @experience, @skills, @portfolioUrl, @profileImageUrl, @resumeUrl, @otherFilesUrl, @isPremium, @visibilityLevel)
+        `);
+    }
+
+    const profile = result.recordset[0];
+    res.json({ message: 'Profile saved successfully', profile });
+  } catch (error) {
+    console.error('❌ Profile save error:', error);
+    res.status(500).json({ error: 'Failed to save profile', details: error.message });
+  }
+});
+
+// Get user's own profile
+app.get('/api/profiles/me', authenticateToken, async (req, res) => {
+  try {
+    const userId = req.user.userId;
+    const pool = await connectToSql();
+
+    const result = await pool.request()
+      .input('userId', sql.Int, userId)
+      .query('SELECT * FROM Profiles WHERE UserId = @userId');
+
+    if (result.recordset.length === 0) {
+      return res.status(404).json({ error: 'Profile not found' });
+    }
+
+    const profile = result.recordset[0];
+    res.json({ profile });
+  } catch (error) {
+    console.error('❌ Profile fetch error:', error);
+    res.status(500).json({ error: 'Failed to fetch profile', details: error.message });
+  }
+});
+
+// Get all profiles (for recruiters/browsing)
+app.get('/api/profiles', async (req, res) => {
+  try {
+    const pool = await connectToSql();
+
+    const result = await pool.request()
+      .query(`
+        SELECT p.*, u.Name as UserName, u.Email as UserEmail
+        FROM Profiles p
+        INNER JOIN Users u ON p.UserId = u.Id
+        ORDER BY p.UpdatedAt DESC
+      `);
+
+    // Generate fresh SAS URLs for file fields
+    const profiles = result.recordset.map(profile => {
+      const profileObj = { ...profile };
+      
+      // Generate SAS URLs for file fields if they exist
+      if (profile.ProfileImageUrl) {
+        try {
+          const fileName = profile.ProfileImageUrl.split('/').pop().split('?')[0];
+          profileObj.ProfileImageUrl = generateSASUrl(fileName, profilingContainerName);
+        } catch (error) {
+          console.error('Error generating SAS URL for profile image:', error);
+        }
+      }
+      
+      if (profile.ResumeUrl) {
+        try {
+          const fileName = profile.ResumeUrl.split('/').pop().split('?')[0];
+          profileObj.ResumeUrl = generateSASUrl(fileName, profilingContainerName);
+        } catch (error) {
+          console.error('Error generating SAS URL for resume:', error);
+        }
+      }
+
+      return profileObj;
+    });
+
+    res.json({ profiles });
+  } catch (error) {
+    console.error('❌ Profiles fetch error:', error);
+    res.status(500).json({ error: 'Failed to fetch profiles', details: error.message });
+  }
+});
+
+// Upload profile files (images, resume, etc.)
+app.post('/api/profiles/upload', authenticateToken, upload.single('file'), async (req, res) => {
+  try {
+    const userId = req.user.userId;
+    const fileBuffer = req.file?.buffer;
+    const fileName = req.file?.originalname;
+    const { fileType } = req.body; // 'profileImage', 'resume', 'other'
+
+    if (!fileBuffer || !fileName) {
+      return res.status(400).json({ error: 'No file uploaded' });
+    }
+
+    if (!fileType) {
+      return res.status(400).json({ error: 'File type is required (profileImage, resume, or other)' });
+    }
+
+    // Generate unique filename with userId prefix
+    const timestamp = Date.now();
+    const uniqueFileName = `profile_${userId}_${timestamp}_${fileName}`;
+
+    console.log('☁️ Uploading profile file to Azure Blob Storage...');
+    const fileUrl = await uploadToBlob(fileBuffer, uniqueFileName, profilingContainerName);
+    console.log('✅ Profile file uploaded to blob:', fileUrl);
+
+    // Update profile with the file URL
+    const pool = await connectToSql();
+    await ensureProfilesTable(pool);
+
+    const profileResult = await pool.request()
+      .input('userId', sql.Int, userId)
+      .query('SELECT * FROM Profiles WHERE UserId = @userId');
+
+    if (profileResult.recordset.length === 0) {
+      // Create profile if it doesn't exist
+      if (fileType === 'profileImage') {
+        await pool.request()
+          .input('userId', sql.Int, userId)
+          .input('fileUrl', sql.NVarChar, fileUrl)
+          .query('INSERT INTO Profiles (UserId, ProfileImageUrl) VALUES (@userId, @fileUrl)');
+      } else if (fileType === 'resume') {
+        await pool.request()
+          .input('userId', sql.Int, userId)
+          .input('fileUrl', sql.NVarChar, fileUrl)
+          .query('INSERT INTO Profiles (UserId, ResumeUrl) VALUES (@userId, @fileUrl)');
+      } else {
+        await pool.request()
+          .input('userId', sql.Int, userId)
+          .input('fileUrl', sql.NVarChar(sql.MAX), JSON.stringify([fileUrl]))
+          .query('INSERT INTO Profiles (UserId, OtherFilesUrl) VALUES (@userId, @fileUrl)');
+      }
+    } else {
+      // Update existing profile
+      if (fileType === 'profileImage') {
+        await pool.request()
+          .input('userId', sql.Int, userId)
+          .input('fileUrl', sql.NVarChar, fileUrl)
+          .query('UPDATE Profiles SET ProfileImageUrl = @fileUrl, UpdatedAt = GETDATE() WHERE UserId = @userId');
+      } else if (fileType === 'resume') {
+        await pool.request()
+          .input('userId', sql.Int, userId)
+          .input('fileUrl', sql.NVarChar, fileUrl)
+          .query('UPDATE Profiles SET ResumeUrl = @fileUrl, UpdatedAt = GETDATE() WHERE UserId = @userId');
+      } else {
+        // For 'other' files, append to OtherFilesUrl JSON array
+        const existingFiles = profileResult.recordset[0].OtherFilesUrl 
+          ? JSON.parse(profileResult.recordset[0].OtherFilesUrl) 
+          : [];
+        existingFiles.push(fileUrl);
+        
+        await pool.request()
+          .input('userId', sql.Int, userId)
+          .input('otherFilesUrl', sql.NVarChar(sql.MAX), JSON.stringify(existingFiles))
+          .query('UPDATE Profiles SET OtherFilesUrl = @otherFilesUrl, UpdatedAt = GETDATE() WHERE UserId = @userId');
+      }
+    }
+
+    res.json({ message: 'File uploaded successfully', url: fileUrl, fileType });
+  } catch (error) {
+    console.error('❌ Profile file upload error:', error);
+    res.status(500).json({ error: 'Failed to upload file', details: error.message });
   }
 });
 
