@@ -637,6 +637,7 @@ const ensureProfilesTable = async (pool) => {
           Id INT PRIMARY KEY IDENTITY(1,1),
           UserId INT NOT NULL,
           Name NVARCHAR(255),
+          Email NVARCHAR(255),
           Company NVARCHAR(255),
           Education NVARCHAR(255),
           Phone NVARCHAR(50),
@@ -658,6 +659,8 @@ const ensureProfilesTable = async (pool) => {
       ELSE
       BEGIN
         -- Add new columns if they don't exist (for existing tables)
+        IF NOT EXISTS (SELECT * FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_NAME = 'Profiles' AND COLUMN_NAME = 'Email')
+          ALTER TABLE Profiles ADD Email NVARCHAR(255);
         IF NOT EXISTS (SELECT * FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_NAME = 'Profiles' AND COLUMN_NAME = 'Company')
           ALTER TABLE Profiles ADD Company NVARCHAR(255);
         IF NOT EXISTS (SELECT * FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_NAME = 'Profiles' AND COLUMN_NAME = 'Education')
@@ -684,7 +687,7 @@ const ensureProfilesTable = async (pool) => {
 app.post('/api/profiles', authenticateToken, async (req, res) => {
   try {
     const userId = req.user.userId;
-    const { name, company, education, phone, occupation, designation, skill, cityLocation, profileImageUrl, resumeUrl, otherFilesUrl, isPremium, visibilityLevel } = req.body;
+    const { name, email, company, education, phone, occupation, designation, skill, cityLocation, profileImageUrl, resumeUrl, otherFilesUrl, isPremium, visibilityLevel } = req.body;
 
     const pool = await connectToSql();
     await ensureProfilesTable(pool);
@@ -700,6 +703,7 @@ app.post('/api/profiles', authenticateToken, async (req, res) => {
       result = await pool.request()
         .input('userId', sql.Int, userId)
         .input('name', sql.NVarChar, name || null)
+        .input('email', sql.NVarChar, email || null)
         .input('company', sql.NVarChar, company || null)
         .input('education', sql.NVarChar, education || null)
         .input('phone', sql.NVarChar, phone || null)
@@ -715,6 +719,7 @@ app.post('/api/profiles', authenticateToken, async (req, res) => {
         .query(`
           UPDATE Profiles 
           SET Name = @name,
+              Email = @email,
               Company = @company,
               Education = @education,
               Phone = @phone,
@@ -736,6 +741,7 @@ app.post('/api/profiles', authenticateToken, async (req, res) => {
       result = await pool.request()
         .input('userId', sql.Int, userId)
         .input('name', sql.NVarChar, name || null)
+        .input('email', sql.NVarChar, email || null)
         .input('company', sql.NVarChar, company || null)
         .input('education', sql.NVarChar, education || null)
         .input('phone', sql.NVarChar, phone || null)
@@ -749,9 +755,9 @@ app.post('/api/profiles', authenticateToken, async (req, res) => {
         .input('isPremium', sql.Bit, isPremium || false)
         .input('visibilityLevel', sql.NVarChar, visibilityLevel || 'standard')
         .query(`
-          INSERT INTO Profiles (UserId, Name, Company, Education, Phone, Occupation, Designation, Skill, CityLocation, ProfileImageUrl, ResumeUrl, OtherFilesUrl, IsPremium, VisibilityLevel)
+          INSERT INTO Profiles (UserId, Name, Email, Company, Education, Phone, Occupation, Designation, Skill, CityLocation, ProfileImageUrl, ResumeUrl, OtherFilesUrl, IsPremium, VisibilityLevel)
           OUTPUT INSERTED.*
-          VALUES (@userId, @name, @company, @education, @phone, @occupation, @designation, @skill, @cityLocation, @profileImageUrl, @resumeUrl, @otherFilesUrl, @isPremium, @visibilityLevel)
+          VALUES (@userId, @name, @email, @company, @education, @phone, @occupation, @designation, @skill, @cityLocation, @profileImageUrl, @resumeUrl, @otherFilesUrl, @isPremium, @visibilityLevel)
         `);
     }
 
