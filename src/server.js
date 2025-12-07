@@ -637,11 +637,13 @@ const ensureProfilesTable = async (pool) => {
           Id INT PRIMARY KEY IDENTITY(1,1),
           UserId INT NOT NULL,
           Name NVARCHAR(255),
-          Bio NVARCHAR(MAX),
-          Expertise NVARCHAR(MAX),
-          Experience NVARCHAR(MAX),
-          Skills NVARCHAR(MAX),
-          PortfolioUrl NVARCHAR(500),
+          Company NVARCHAR(255),
+          Education NVARCHAR(255),
+          Phone NVARCHAR(50),
+          Occupation NVARCHAR(255),
+          Designation NVARCHAR(255),
+          Skill NVARCHAR(255),
+          CityLocation NVARCHAR(255),
           ProfileImageUrl NVARCHAR(500),
           ResumeUrl NVARCHAR(500),
           OtherFilesUrl NVARCHAR(MAX), -- JSON array of file URLs
@@ -652,6 +654,24 @@ const ensureProfilesTable = async (pool) => {
           FOREIGN KEY (UserId) REFERENCES Users(Id) ON DELETE CASCADE
         );
         CREATE INDEX IX_Profiles_UserId ON Profiles(UserId);
+      END
+      ELSE
+      BEGIN
+        -- Add new columns if they don't exist (for existing tables)
+        IF NOT EXISTS (SELECT * FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_NAME = 'Profiles' AND COLUMN_NAME = 'Company')
+          ALTER TABLE Profiles ADD Company NVARCHAR(255);
+        IF NOT EXISTS (SELECT * FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_NAME = 'Profiles' AND COLUMN_NAME = 'Education')
+          ALTER TABLE Profiles ADD Education NVARCHAR(255);
+        IF NOT EXISTS (SELECT * FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_NAME = 'Profiles' AND COLUMN_NAME = 'Phone')
+          ALTER TABLE Profiles ADD Phone NVARCHAR(50);
+        IF NOT EXISTS (SELECT * FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_NAME = 'Profiles' AND COLUMN_NAME = 'Occupation')
+          ALTER TABLE Profiles ADD Occupation NVARCHAR(255);
+        IF NOT EXISTS (SELECT * FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_NAME = 'Profiles' AND COLUMN_NAME = 'Designation')
+          ALTER TABLE Profiles ADD Designation NVARCHAR(255);
+        IF NOT EXISTS (SELECT * FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_NAME = 'Profiles' AND COLUMN_NAME = 'Skill')
+          ALTER TABLE Profiles ADD Skill NVARCHAR(255);
+        IF NOT EXISTS (SELECT * FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_NAME = 'Profiles' AND COLUMN_NAME = 'CityLocation')
+          ALTER TABLE Profiles ADD CityLocation NVARCHAR(255);
       END
     `);
     console.log('✅ Profiles table verified/created');
@@ -664,7 +684,7 @@ const ensureProfilesTable = async (pool) => {
 app.post('/api/profiles', authenticateToken, async (req, res) => {
   try {
     const userId = req.user.userId;
-    const { name, bio, expertise, experience, skills, portfolioUrl, profileImageUrl, resumeUrl, otherFilesUrl, isPremium, visibilityLevel } = req.body;
+    const { name, company, education, phone, occupation, designation, skill, cityLocation, profileImageUrl, resumeUrl, otherFilesUrl, isPremium, visibilityLevel } = req.body;
 
     const pool = await connectToSql();
     await ensureProfilesTable(pool);
@@ -680,11 +700,13 @@ app.post('/api/profiles', authenticateToken, async (req, res) => {
       result = await pool.request()
         .input('userId', sql.Int, userId)
         .input('name', sql.NVarChar, name || null)
-        .input('bio', sql.NVarChar(sql.MAX), bio || null)
-        .input('expertise', sql.NVarChar(sql.MAX), expertise || null)
-        .input('experience', sql.NVarChar(sql.MAX), experience || null)
-        .input('skills', sql.NVarChar(sql.MAX), skills || null)
-        .input('portfolioUrl', sql.NVarChar, portfolioUrl || null)
+        .input('company', sql.NVarChar, company || null)
+        .input('education', sql.NVarChar, education || null)
+        .input('phone', sql.NVarChar, phone || null)
+        .input('occupation', sql.NVarChar, occupation || null)
+        .input('designation', sql.NVarChar, designation || null)
+        .input('skill', sql.NVarChar, skill || null)
+        .input('cityLocation', sql.NVarChar, cityLocation || null)
         .input('profileImageUrl', sql.NVarChar, profileImageUrl || null)
         .input('resumeUrl', sql.NVarChar, resumeUrl || null)
         .input('otherFilesUrl', sql.NVarChar(sql.MAX), otherFilesUrl || null)
@@ -693,11 +715,13 @@ app.post('/api/profiles', authenticateToken, async (req, res) => {
         .query(`
           UPDATE Profiles 
           SET Name = @name,
-              Bio = @bio,
-              Expertise = @expertise,
-              Experience = @experience,
-              Skills = @skills,
-              PortfolioUrl = @portfolioUrl,
+              Company = @company,
+              Education = @education,
+              Phone = @phone,
+              Occupation = @occupation,
+              Designation = @designation,
+              Skill = @skill,
+              CityLocation = @cityLocation,
               ProfileImageUrl = @profileImageUrl,
               ResumeUrl = @resumeUrl,
               OtherFilesUrl = @otherFilesUrl,
@@ -712,20 +736,22 @@ app.post('/api/profiles', authenticateToken, async (req, res) => {
       result = await pool.request()
         .input('userId', sql.Int, userId)
         .input('name', sql.NVarChar, name || null)
-        .input('bio', sql.NVarChar(sql.MAX), bio || null)
-        .input('expertise', sql.NVarChar(sql.MAX), expertise || null)
-        .input('experience', sql.NVarChar(sql.MAX), experience || null)
-        .input('skills', sql.NVarChar(sql.MAX), skills || null)
-        .input('portfolioUrl', sql.NVarChar, portfolioUrl || null)
+        .input('company', sql.NVarChar, company || null)
+        .input('education', sql.NVarChar, education || null)
+        .input('phone', sql.NVarChar, phone || null)
+        .input('occupation', sql.NVarChar, occupation || null)
+        .input('designation', sql.NVarChar, designation || null)
+        .input('skill', sql.NVarChar, skill || null)
+        .input('cityLocation', sql.NVarChar, cityLocation || null)
         .input('profileImageUrl', sql.NVarChar, profileImageUrl || null)
         .input('resumeUrl', sql.NVarChar, resumeUrl || null)
         .input('otherFilesUrl', sql.NVarChar(sql.MAX), otherFilesUrl || null)
         .input('isPremium', sql.Bit, isPremium || false)
         .input('visibilityLevel', sql.NVarChar, visibilityLevel || 'standard')
         .query(`
-          INSERT INTO Profiles (UserId, Name, Bio, Expertise, Experience, Skills, PortfolioUrl, ProfileImageUrl, ResumeUrl, OtherFilesUrl, IsPremium, VisibilityLevel)
+          INSERT INTO Profiles (UserId, Name, Company, Education, Phone, Occupation, Designation, Skill, CityLocation, ProfileImageUrl, ResumeUrl, OtherFilesUrl, IsPremium, VisibilityLevel)
           OUTPUT INSERTED.*
-          VALUES (@userId, @name, @bio, @expertise, @experience, @skills, @portfolioUrl, @profileImageUrl, @resumeUrl, @otherFilesUrl, @isPremium, @visibilityLevel)
+          VALUES (@userId, @name, @company, @education, @phone, @occupation, @designation, @skill, @cityLocation, @profileImageUrl, @resumeUrl, @otherFilesUrl, @isPremium, @visibilityLevel)
         `);
     }
 
