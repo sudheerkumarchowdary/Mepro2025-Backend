@@ -31,7 +31,7 @@ const generateSASUrl = (fileName, container = containerName) => {
   startsOn.setMinutes(startsOn.getMinutes() - 5); // Allow 5 minutes clock skew
 
   const sasToken = generateBlobSASQueryParameters({
-    containerName,
+    containerName: container,
     blobName: fileName,
     startsOn,
     expiresOn,

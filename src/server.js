@@ -811,7 +811,9 @@ app.get('/api/profiles', async (req, res) => {
       // Generate SAS URLs for file fields if they exist
       if (profile.ProfileImageUrl) {
         try {
-          const fileName = profile.ProfileImageUrl.split('/').pop().split('?')[0];
+          let fileName = profile.ProfileImageUrl.split('/').pop().split('?')[0];
+          // Decode URL-encoded filename
+          fileName = decodeURIComponent(fileName);
           profileObj.ProfileImageUrl = generateSASUrl(fileName, profilingContainerName);
         } catch (error) {
           console.error('Error generating SAS URL for profile image:', error);
@@ -820,7 +822,9 @@ app.get('/api/profiles', async (req, res) => {
       
       if (profile.ResumeUrl) {
         try {
-          const fileName = profile.ResumeUrl.split('/').pop().split('?')[0];
+          let fileName = profile.ResumeUrl.split('/').pop().split('?')[0];
+          // Decode URL-encoded filename
+          fileName = decodeURIComponent(fileName);
           profileObj.ResumeUrl = generateSASUrl(fileName, profilingContainerName);
         } catch (error) {
           console.error('Error generating SAS URL for resume:', error);
