@@ -427,33 +427,54 @@ app.get('/api/pitches', async (req, res) => {
       query.category = category;
     }
 
+    // Check MongoDB connection
+    if (mongoose.connection.readyState !== 1) {
+      console.error('MongoDB not connected. State:', mongoose.connection.readyState);
+      return res.status(500).json({ 
+        error: 'Database connection error',
+        details: 'MongoDB is not connected'
+      });
+    }
+
     const pitches = await Pitch.find(query)
       .sort({ uploadedAt: -1 })
       .select('-__v');
 
     // Connect to Azure SQL to get user details
-    const pool = await connectToSql();
+    let pool;
+    try {
+      pool = await connectToSql();
+    } catch (sqlError) {
+      console.error('Azure SQL connection error:', sqlError);
+      // Continue without user details if SQL connection fails
+      pool = null;
+    }
     
     // Get unique user IDs from pitches
     const userIds = [...new Set(pitches.map(p => p.userId))];
     
     // Fetch user details from Azure SQL using parameterized query
     const userMap = new Map();
-    if (userIds.length > 0) {
-      // Build parameterized query for IN clause
-      const request = pool.request();
-      userIds.forEach((id, index) => {
-        request.input(`userId${index}`, sql.NVarChar, id);
-      });
-      
-      const placeholders = userIds.map((_, index) => `@userId${index}`).join(',');
-      const usersResult = await request.query(
-        `SELECT Id, Name, Email FROM Users WHERE CAST(Id AS NVARCHAR) IN (${placeholders})`
-      );
-      
-      usersResult.recordset.forEach(user => {
-        userMap.set(user.Id.toString(), { name: user.Name, email: user.Email });
-      });
+    if (userIds.length > 0 && pool) {
+      try {
+        // Build parameterized query for IN clause
+        const request = pool.request();
+        userIds.forEach((id, index) => {
+          request.input(`userId${index}`, sql.NVarChar, id);
+        });
+        
+        const placeholders = userIds.map((_, index) => `@userId${index}`).join(',');
+        const usersResult = await request.query(
+          `SELECT Id, Name, Email FROM Users WHERE CAST(Id AS NVARCHAR) IN (${placeholders})`
+        );
+        
+        usersResult.recordset.forEach(user => {
+          userMap.set(user.Id.toString(), { name: user.Name, email: user.Email });
+        });
+      } catch (sqlError) {
+        console.error('Error fetching user details from Azure SQL:', sqlError);
+        // Continue without user details if query fails
+      }
     }
 
     // Generate fresh SAS URLs for each pitch and add user info
@@ -487,7 +508,11 @@ app.get('/api/pitches', async (req, res) => {
     res.json({ pitches: pitchesWithFreshUrls });
   } catch (error) {
     console.error('Failed to fetch pitches:', error);
-    res.status(500).json({ error: 'Failed to fetch pitches' });
+    console.error('Error stack:', error.stack);
+    res.status(500).json({ 
+      error: 'Failed to fetch pitches',
+      details: error.message || 'Unknown error occurred'
+    });
   }
 });
 
